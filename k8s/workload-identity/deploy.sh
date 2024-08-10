@@ -1,9 +1,9 @@
-subscription_name="Production"
-resource_group_name="rg-arc-k8s"
+subscription_name="DEV"
+resource_group_name="rg-k8s"
 app_identity_name="id-arc-k8s"
-storage_name="arck8s0000000010"
+storage_name="arck8s1000000010"
 container_name="oidc"
-location="swedencentral"
+location="westeurope"
 
 cd k8s/workload-identity
 
@@ -11,10 +11,10 @@ az account set --subscription $subscription_name
 
 az group create --name $resource_group_name --location $location
 
-curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
-chmod +x ./kind
-sudo mv ./kind /usr/local/bin/kind
-
+# curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+# chmod +x ./kind
+# sudo mv ./kind /usr/local/bin/kind
+brew install kind
 # Create identity
 identity_json=$(az identity create --name $app_identity_name --resource-group $resource_group_name -o json)
 client_id=$(echo $identity_json | jq -r .clientId)
@@ -70,7 +70,7 @@ az storage blob upload \
 curl -s "https://${storage_name}.blob.core.windows.net/${container_name}/.well-known/openid-configuration"
 
 # Download azwi from GitHub Releases
-download=$(curl -sL https://api.github.com/repos/Azure/azure-workload-identity/releases/latest | jq -r '.assets[].browser_download_url' | grep linux-amd64)
+download=$(curl -sL https://api.github.com/repos/Azure/azure-workload-identity/releases/latest | jq -r '.assets[].browser_download_url' | grep darwin-arm64)
 wget $download -O azwi.zip
 tar -xf azwi.zip --exclude=*.md --exclude=LICENSE
 ./azwi --help
@@ -92,16 +92,17 @@ az storage blob upload \
 curl -s "https://${storage_name}.blob.core.windows.net/${container_name}/openid/v1/jwks"
 
 # Create a Kubernetes service account
-service_account_oidc_issuer=$(echo "https://${storage_name}.blob.core.windows.net/${container_name}/")
+service_account_oidc_issuer=$(echo "https://${storage_name}.blob.core.windows.net/${container_name}")
 service_account_key_file="$(pwd)/sa.pub"
 service_account_signing_file="$(pwd)/sa.key"
 service_account_name="workload-identity-sa"
 
-curl -s $service_account_oidc_issuer.well-known/openid-configuration
+curl -s ${service_account_oidc_issuer}/.well-known/openid-configuration
 
 # https://kind.sigs.k8s.io/docs/user/quick-start/
 # https://hub.docker.com/r/kindest/node/tags
-cat <<EOF | kind create cluster --name azure-workload-identity --image kindest/node:v1.29.2 --config=-
+docker ps || echo "Echo docker not running?"
+docker ps && cat <<EOF | kind create cluster --name azure-workload-identity --image kindest/node:v1.29.2 --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -133,10 +134,9 @@ kubectl get nodes
 
 # Create connected cluster
 az connectedk8s connect \
-  --name "mylaptop" \
+  --name "k8s-kind" \
   --resource-group $resource_group_name \
-  --location $location \
-  --tags "Datacenter=Garage City=Espoo StateOrDistrict CountryOrRegion=Finland"
+  --location $location 
 
 # Install Mutating Admission Webhook
 tenant_id=$(az account show --query tenantId -o tsv)
@@ -198,7 +198,7 @@ kubectl get pod -n kube-system
 network_app_uri="http://localhost:30000"
 curl $network_app_uri
 curl $network_app_uri/api/commands
-curl -X POST --data "INFO ENV" "$network_app_uri/api/commands"
+curl -X POST --data "INFO ENV" "$network_app_uri/api/commands"|sort
 curl -X POST --data "INFO ENV AZURE_CLIENT_ID" "$network_app_uri/api/commands"
 curl -X POST --data "INFO ENV AZURE_TENANT_ID" "$network_app_uri/api/commands"
 curl -X POST --data "INFO ENV AZURE_FEDERATED_TOKEN_FILE" "$network_app_uri/api/commands"

@@ -32,7 +32,7 @@ spec:
       nodeSelector:
         kubernetes.io/os: linux
       containers:
-        - image: jannemattila/webapp-network-tester:1.0.69
+        - image: jannemattila/webapp-network-tester:latest
           imagePullPolicy: IfNotPresent
           name: network-app
           resources:
