@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-app-configmap
+  namespace: network-app
+data:
+  run.ps1: |-
+    Write-Output "This is example run.ps1 (from configmap)"
+
+    Get-AzResourceGroup | Format-Table
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: azure-powershell-job
+  namespace: network-app
+spec:
+  template:
+    metadata:
+      labels:
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: workload-identity-sa
+      restartPolicy: Never
+      dnsPolicy: "None"
+      dnsConfig:
+        nameservers:
+          - 1.1.1.1
+      containers:
+        - name: azure-powershell-job
+          image: library/azure-powershell-job:mariner-2-arm64
+          # command:
+          #   - "/bin/sleep"
+          #   - "10000"
+          env:
+            # No need to set this manually, 
+            # since workload identity will automatically set it
+            # - name: AZURE_CLIENT_ID
+            #   value: "${client_id}"
+            - name: SCRIPT_FILE
+              value: /mnt/run.ps1
+          volumeMounts:
+            - name: configmap
+              mountPath: /mnt
+      volumes:
+        - name: configmap
+          configMap:
+            name: network-app-configmap
+            defaultMode: 0744

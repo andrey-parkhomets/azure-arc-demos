@@ -101,6 +101,18 @@ curl -s ${service_account_oidc_issuer}/.well-known/openid-configuration
 
 # https://kind.sigs.k8s.io/docs/user/quick-start/
 # https://hub.docker.com/r/kindest/node/tags
+deploy_dir=$(pwd)
+
+multipass mount $deploy_dir microk8s-vm:/mnt
+
+cat microk8s-config.yaml| multipass exec -d /mnt/ microk8s-vm \
+-- sudo snap set microk8s config=
+
+microk8s inspect
+
+cat microk8s-config.yaml| multipass exec -d /mnt/ microk8s-vm \
+-- sudo cat /var/snap/microk8s/current/args/kube-apiserver|grep -e 'service-account'
+
 docker ps || echo "Echo docker not running?"
 docker ps && cat <<EOF | kind create cluster --name azure-workload-identity --image kindest/node:v1.29.2 --config=-
 kind: Cluster
@@ -174,6 +186,16 @@ az identity federated-credential create \
 kubectl get serviceaccount -n network-app
 kubectl describe serviceaccount -n network-app
 
+image_tester_dir="../../../webapp-network-tester"
+cd $image_tester_dir
+docker build . -t jannemattila/webapp-network-tester:arm64  -f src/WebApp/Dockerfile
+cd $deploy_dir
+docker save jannemattila/webapp-network-tester:arm64  > webapp-network-tester_arm64_image.tar
+
+
+multipass exec microk8s-vm -- ls -la
+multipass exec -d /mnt/ microk8s-vm -- sudo microk8s images import < webapp-network-tester_arm64_image.tar
+
 kubectl apply -f network-app.yaml
 # kubectl delete -f network-app.yaml
 
@@ -212,59 +234,18 @@ curl -X POST --data "HTTP GET \"https://login.microsoftonline.com\"" "$network_a
 curl -X POST --data "FILE READ /var/run/secrets/azure/tokens/azure-identity-token" "$network_app_uri/api/commands"
 
 # Deploy Azure PowerShell Job
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: network-app-configmap
-  namespace: network-app
-data:
-  run.ps1: |-
-    Write-Output "This is example run.ps1 (from configmap)"
 
-    Get-AzResourceGroup | Format-Table
-EOF
+image_job_dir="../../../azure-powershell-job/src"
 
-cat <<EOF | kubectl apply -f -
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: azure-powershell-job
-  namespace: network-app
-spec:
-  template:
-    metadata:
-      labels:
-        azure.workload.identity/use: "true"
-    spec:
-      serviceAccountName: "${service_account_name}"
-      restartPolicy: Never
-      dnsPolicy: "None"
-      dnsConfig:
-        nameservers:
-          - 1.1.1.1
-      containers:
-        - name: azure-powershell-job
-          image: jannemattila/azure-powershell-job:1.0.5
-          # command:
-          #   - "/bin/sleep"
-          #   - "10000"
-          env:
-            # No need to set this manually, 
-            # since workload identity will automatically set it
-            # - name: AZURE_CLIENT_ID
-            #   value: "${client_id}"
-            - name: SCRIPT_FILE
-              value: /mnt/run.ps1
-          volumeMounts:
-            - name: configmap
-              mountPath: /mnt
-      volumes:
-        - name: configmap
-          configMap:
-            name: network-app-configmap
-            defaultMode: 0744
-EOF
+cd $image_job_dir
+docker build . -t azure-powershell-job:mariner-2-arm64 --build-arg BUILD_VERSION=local
+cd $deploy_dir
+
+kind load docker-image azure-powershell-job:mariner-2-arm64  -n azure-workload-identity
+
+kubectl apply -f job.yaml
+
+
 
 kubectl get pods -n network-app
 kubectl get jobs -n network-app
