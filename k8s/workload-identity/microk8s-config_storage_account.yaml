@@ -1,0 +1,56 @@
+---
+version: 0.2.0
+# persistentClusterToken: my-token
+# extraSANs:
+#   - 10.10.10.10
+#   - microk8s.example.com
+extraKubeAPIServerArgs:
+  --service-account-issuer: https://arck8s1000000010.blob.core.windows.net/oidc
+  --service-account-key-file: /mnt/sa.pub
+  --service-account-signing-key-file: /mnt/sa.key
+
+# extraKubeletArgs:
+#   --cluster-dns: 10.152.183.10
+# extraKubeProxyArgs:
+#   --cluster-cidr: 10.1.0.0/16
+extraKubeControllerManagerArgs:
+  --service-account-private-key-file: /mnt/sa.key
+# extraKubeSchedulerArgs:
+#   --leader-elect-lease-duration: 30s
+#   --leader-elect-renew-deadline: 15s
+# extraContainerdArgs:
+#   -l: debug
+# extraContainerdEnv:
+#   http_proxy: http://squid.internal:3128
+#   https_proxy: http://squid.internal:3128
+# extraDqliteArgs:
+#   --disk-mode: "true"
+# extraDqliteEnv:
+#   LIBRAFT_TRACE: "1"
+#   LIBDQLITE_TRACE: "1"
+# extraConfigFiles:
+#   flannel-network-mgr-config: |
+#     {"Network": "10.1.0.0/16", "Backend": {"Type": "vxlan"}}
+# addons:
+#   - name: dns
+#   - name: mayastor
+#     args: [--default-pool-size, 20GB]
+#   - name: registry
+#     disable: true
+# addonRepositories:
+#   - name: core
+#     url: https://github.com/canonical/microk8s-core-addons
+#   - name: community
+#     url: /snap/microk8s/current/addons/community
+#     reference: 1.26
+# containerdRegistryConfigs:
+#   docker.io: server = "http://my.proxy:5000"
+# join:
+#   url: 10.0.0.10:25000/my-token/hash
+#   worker: true
+# extraCNIEnv:
+#   IPv4_SUPPORT: true
+#   IPv4_CLUSTER_CIDR: 10.2.0.0/16
+#   IPv4_SERVICE_CIDR: 10.153.183.0/24
+# extraFIPSEnv:
+#   GOFIPS: 1

@@ -16,7 +16,8 @@ az group create --name $resource_group_name --location $location
 # sudo mv ./kind /usr/local/bin/kind
 brew install kind
 # Create identity
-identity_json=$(az identity create --name $app_identity_name --resource-group $resource_group_name -o json)
+az identity create --name $app_identity_name --resource-group $resource_group_name
+identity_json=$(az identity show --name $app_identity_name --resource-group $resource_group_name -o json)
 client_id=$(echo $identity_json | jq -r .clientId)
 principal_id=$(echo $identity_json | jq -r .principalId)
 echo $client_id
@@ -56,6 +57,23 @@ cat <<EOF > openid-configuration.json
 }
 EOF
 
+#### v2
+cat <<EOF > openid-configuration.json
+{
+  "issuer": "https://raw.githubusercontent.com/andrey-parkhomets/azure-arc-demos/main/k8s/workload-identity/",
+  "jwks_uri": "https://raw.githubusercontent.com/andrey-parkhomets/azure-arc-demos/main/k8s/workload-identity/openid/v1/jwks",
+  "response_types_supported": [
+    "id_token"
+  ],
+  "subject_types_supported": [
+    "public"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "RS256"
+  ]
+}
+EOF
+
 cat openid-configuration.json
 
 # Upload the discovery document
@@ -69,10 +87,17 @@ az storage blob upload \
 # Verify that the discovery document is publicly accessible
 curl -s "https://${storage_name}.blob.core.windows.net/${container_name}/.well-known/openid-configuration"
 
+mkdir -p .well-known
+mv openid-configuration.json  .well-known/openid-configuration
+git add .well-known/openid-configuration
+git commit -am 'test'
+git push
+curl -s "https://raw.githubusercontent.com/andrey-parkhomets/azure-arc-demos/main/k8s/workload-identity/.well-known/openid-configuration"
+
 # Download azwi from GitHub Releases
 download=$(curl -sL https://api.github.com/repos/Azure/azure-workload-identity/releases/latest | jq -r '.assets[].browser_download_url' | grep darwin-arm64)
 wget $download -O azwi.zip
-tar -xf azwi.zip --exclude=*.md --exclude=LICENSE
+tar -xf azwi.zip --exclude=\*.md --exclude=LICENSE
 ./azwi --help
 ./azwi version
 
@@ -88,11 +113,17 @@ az storage blob upload \
   --name openid/v1/jwks \
   --overwrite
 
+mv jwks.json openid/v1/jwks
+git add openid/v1/jwks
+git commit -m 'test openid/v1/jwks'
+git push
 # Verify that the JWKS document is publicly accessible
 curl -s "https://${storage_name}.blob.core.windows.net/${container_name}/openid/v1/jwks"
 
+curl -s "https://raw.githubusercontent.com/andrey-parkhomets/azure-arc-demos/main/k8s/workload-identity/openid/v1/jwks"
 # Create a Kubernetes service account
 service_account_oidc_issuer=$(echo "https://${storage_name}.blob.core.windows.net/${container_name}")
+service_account_oidc_issuer=$(echo "https://raw.githubusercontent.com/andrey-parkhomets/azure-arc-demos/main/k8s/workload-identity")
 service_account_key_file="$(pwd)/sa.pub"
 service_account_signing_file="$(pwd)/sa.key"
 service_account_name="workload-identity-sa"
@@ -105,13 +136,16 @@ deploy_dir=$(pwd)
 
 multipass mount $deploy_dir microk8s-vm:/mnt
 
-cat microk8s-config.yaml| multipass exec -d /mnt/ microk8s-vm \
--- sudo snap set microk8s config=
+multipass exec -d /mnt/ microk8s-vm -- sudo snap set microk8s config="\"$(cat microk8s-config_raw_git.yaml)\""
+multipass exec -d /mnt/ microk8s-vm -- sudo snap set microk8s config="\"$(cat microk8s-config_storage_account.yaml)\""
+
+# cat <<'EOF'|multipass exec -d /mnt/ microk8s-vm -- sudo snap set microk8s config=
+# \"$(cat microk8s-config_raw_git.yaml)\"
+# EOF
 
 microk8s inspect
 
-cat microk8s-config.yaml| multipass exec -d /mnt/ microk8s-vm \
--- sudo cat /var/snap/microk8s/current/args/kube-apiserver|grep -e 'service-account'
+multipass exec -d /mnt/ microk8s-vm -- sudo cat /var/snap/microk8s/current/args/kube-apiserver|grep -e 'service-account'
 
 docker ps || echo "Echo docker not running?"
 docker ps && cat <<EOF | kind create cluster --name azure-workload-identity --image kindest/node:v1.29.2 --config=-
